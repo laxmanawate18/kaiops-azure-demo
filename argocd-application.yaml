@@ -1,0 +1,24 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kaiops-azure-demo
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/laxmanawate18/kaiops-azure-demo.git
+    targetRevision: main
+    path: k8s
+  destination:
+    # AKS cluster already registered in ArgoCD (Azure / my-demo-cluster).
+    server: https://my-demo-cluster-dns-5thwc7sp.hcp.centralus.azmk8s.io:443
+    namespace: kaiops-azure-demo
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - PruneLast=true

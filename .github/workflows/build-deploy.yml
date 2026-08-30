@@ -1,0 +1,58 @@
+name: Build and Deploy kaiops-azure-demo
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  PROJECT_ID: project-3da8cb5f-328e-44d3-b7a
+  REGION: us-central1
+  REPO: kaiops-azure-demo
+  IMAGE: kaiops-azure-demo
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # Authenticate to GCP via Workload Identity Federation (no key needed).
+      # Requires GitHub secrets: WIP_PROVIDER + SERVICE_ACCOUNT.
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIP_PROVIDER }}
+          service_account: ${{ secrets.SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure docker
+        run: gcloud auth configure-docker ${REGION}-docker.pkg.dev
+
+      - name: Build and push image
+        id: build
+        run: |
+          docker build -t ${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/${IMAGE}:${{ github.sha }} -t ${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/${IMAGE}:latest .
+          docker push ${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/${IMAGE}:${{ github.sha }}
+          docker push ${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/${IMAGE}:latest
+          echo "IMAGE_URI=${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/${IMAGE}:${{ github.sha }}" >> "$GITHUB_OUTPUT"
+
+      # Update the GitOps manifests with the new image tag (ArgoCD auto-syncs).
+      # Requires a GitHub PAT secret: GH_PAT (repo scope) for push-back.
+      - name: Update manifests with new image
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          sed -i "s|image: .*|image: ${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/${IMAGE}:${{ github.sha }}|" k8s/deployment.yaml
+          git config user.name "kaiops-ci"
+          git config user.email "kaiops@example.com"
+          git add k8s/deployment.yaml
+          git commit -m "chore: update kaiops-azure-demo image to ${{ github.sha }}"
+          git config --local --unset-all http.https://github.com/.extraheader || true
+          git remote set-url origin "https://x-access-token:${GH_PAT}@github.com/laxmanawate18/kaiops-azure-demo.git"
+          git push origin HEAD:main

@@ -1,0 +1,6 @@
+# Binary
+/bin/
+*.exe
+
+# Local artifacts
+*.log
